@@ -72,6 +72,7 @@ endif()
 
 # FreeBSD needs you to link pthread (symlinks to the libthr 1:1 threading implementation) explicitly
 if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
+  add_definitions(-DBOOST_ASIO_DISABLE_KQUEUE=1)
   set(EXTRA_LIBS ${EXTRA_LIBS} pthread)
   set(TEST_LIBS ${TEST_LIBS} pthread)
 endif()

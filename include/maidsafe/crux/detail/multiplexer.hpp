@@ -19,6 +19,7 @@
 #include <list>
 #include <queue>
 #include <tuple>
+#include <iostream>
 
 #include <boost/optional.hpp>
 #include <boost/asio/placeholders.hpp>
@@ -201,6 +202,7 @@ inline void multiplexer::remove(socket_base *socket)
 {
     assert(socket);
 
+std::cout << __PRETTY_FUNCTION__ << " " << this << std::endl;
     sockets.erase(socket->remote_endpoint());
 
     if (sockets.empty()) {
@@ -235,6 +237,7 @@ void multiplexer::disable_accept_requests_from(acceptor& accept) {
                     handler(boost::asio::error::operation_aborted);
                     });
             stop_receive();
+std::cout << __PRETTY_FUNCTION__ << " " << this << std::endl;
             socket->close();
             acceptor_queue.erase(i++);
         }
@@ -283,12 +286,14 @@ void multiplexer::send_keepalive(const endpoint_type& remote_endpoint,
     detail::encoder encoder(header->data(), header->size());
     header::keepalive(retransmission_count, sequence, ack).encode(encoder);
 
+std::cout << __PRETTY_FUNCTION__ << " " << this << std::endl;
     next_layer().async_send_to
         (boost::asio::buffer(*header),
          remote_endpoint,
          [handler, header] (boost::system::error_code error, std::size_t length) mutable
          {
-             assert(length == header->size());
+std::cout << __PRETTY_FUNCTION__ << " error = " << error << " length = " << length << " header size = " << header->size() << std::endl;
+             assert(error || length == header->size());
              static_cast<void>(length);
              handler(error);
          });
@@ -339,6 +344,8 @@ inline void multiplexer::start_receive()
     // error by 2.
     assert(receive_calls < sockets.size() + acceptor_queue.size() + 2U);
 
+std::cout << __PRETTY_FUNCTION__ << " " << this << " ++ = " << (int) receive_calls << std::endl;
+
     if (receive_calls++ == 0)
     {
         do_start_receive();
@@ -350,6 +357,8 @@ inline void multiplexer::stop_receive()
     // Each socket may invoke only one receive call at a time.
     assert(receive_calls > 0);
     assert(receive_calls <= sockets.size() + acceptor_queue.size() + 1U);
+
+std::cout << __PRETTY_FUNCTION__ << " " << this << " -- = " << (int) receive_calls << std::endl;
 
     if (--receive_calls == 0)
     {
@@ -409,6 +418,7 @@ void multiplexer::process_peek(boost::system::error_code error,
 
     assert(receive_calls <= sockets.size() + acceptor_queue.size() + 1U);
 
+    std::cout << __PRETTY_FUNCTION__ << " " << this << " error = " << error.value() << std::endl;
     switch (error.value())
     {
     case 0:
@@ -422,6 +432,7 @@ void multiplexer::process_peek(boost::system::error_code error,
 
     case boost::asio::error::operation_aborted:
         discard_message();
+std::cout << __PRETTY_FUNCTION__ << " " << this << " aborted -- = " << (int) receive_calls << std::endl;
         --receive_calls;
         return;
 
@@ -439,7 +450,13 @@ void multiplexer::process_peek(boost::system::error_code error,
     next_layer_type::bytes_readable command(true);
     next_layer().io_control(command);
     std::size_t datagram_size = command.get();
+#ifdef __FreeBSD__
+    // FreeBSD's FIONREAD when asked of a UDP socket includes the UDP and IP headers which
+    // for IPv4 is 16 bytes and for IPv6 is 24 bytes
+    datagram_size -= remote_endpoint.address().is_v6() ? 24 : 16;
+#endif
 
+    std::cout << __PRETTY_FUNCTION__ << " " << this << " datagram_size=" << datagram_size << std::endl;
     if (datagram_size < header_size) {
         // Our empty packet, corrupted packet or someone is being silly.
         discard_message();
@@ -454,6 +471,7 @@ void multiplexer::process_peek(boost::system::error_code error,
     // FIXME: Make socket.receive_from commands async.
     if (recipient == sockets.end())
     {
+        std::cout << __PRETTY_FUNCTION__ << " " << this << " establish_connection" << std::endl;
         establish_connection(payload_size, remote_endpoint);
     }
     else
@@ -463,6 +481,7 @@ void multiplexer::process_peek(boost::system::error_code error,
 
         std::shared_ptr<buffer_type> payload;
 
+        std::cout << __PRETTY_FUNCTION__ << " " << this << " recv_buffers=" << recv_buffers << std::endl;
         if (recv_buffers) {
             next_layer().receive_from
                 ( concatenate( asio::buffer(header_data)
@@ -487,14 +506,17 @@ void multiplexer::process_peek(boost::system::error_code error,
         switch (type & header::constant::mask_type)
         {
         case header::constant::type_handshake:
+            std::cout << __PRETTY_FUNCTION__ << " " << this << " type_handshake" << std::endl;
             process_handshake(crux_socket, remote_endpoint, type, decoder);
             break;
 
         case header::constant::type_keepalive:
+            std::cout << __PRETTY_FUNCTION__ << " " << this << " type_keepalive" << std::endl;
             process_keepalive(crux_socket, type, decoder);
             break;
 
         case header::constant::type_data:
+            std::cout << __PRETTY_FUNCTION__ << " " << this << " type_data" << std::endl;
             process_data(crux_socket, type, decoder, error, payload_size, payload);
             break;
 
@@ -504,6 +526,7 @@ void multiplexer::process_peek(boost::system::error_code error,
         }
     }
 
+    std::cout << __PRETTY_FUNCTION__ << " " << this << " -- = " << (int) receive_calls << std::endl;
     if (--receive_calls > 0) {
         do_start_receive();
     }
@@ -584,6 +607,7 @@ void multiplexer::process_handshake(socket_base& socket,
                                     std::uint16_t type,
                                     detail::decoder& decoder)
 {
+std::cout << __PRETTY_FUNCTION__ << " " << this << " process_handshake" << std::endl;
     header::handshake msg(type, decoder);
     socket.process_handshake(msg.initial_sequence_number, remote_endpoint);
 
@@ -598,6 +622,7 @@ void multiplexer::process_keepalive(socket_base& socket,
                                     std::uint16_t type,
                                     detail::decoder& decoder)
 {
+std::cout << __PRETTY_FUNCTION__ << " " << this << " process_keepalive" << std::endl;
     header::keepalive msg(type, decoder);
     socket.process_keepalive(msg.sequence_number);
 
@@ -615,6 +640,7 @@ void multiplexer::process_data(socket_base& socket,
                                std::size_t payload_size,
                                std::shared_ptr<buffer_type> payload)
 {
+std::cout << __PRETTY_FUNCTION__ << " " << this << " process_data" << std::endl;
     header::data msg(type, decoder);
     socket.process_data(error, payload_size, payload, msg.sequence_number);
 

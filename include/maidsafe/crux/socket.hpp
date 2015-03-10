@@ -243,10 +243,12 @@ inline socket::socket(boost::asio::io_service& io,
 
 inline socket::~socket()
 {
+std::cout << __PRETTY_FUNCTION__ << " " << this << std::endl;
     close();
 }
 
 inline void socket::close() {
+std::cout << __PRETTY_FUNCTION__ << " " << this << std::endl;
     // Already closed?
     if (!multiplexer) return;
 
@@ -289,6 +291,7 @@ inline void socket::on_any_packet_received() {
 }
 
 inline void socket::on_keepalive_timeout() {
+std::cout << __PRETTY_FUNCTION__ << " " << this << std::endl;
     close();
 }
 
